@@ -1,31 +1,19 @@
 
 import { User, InsertUser, Post, Comment, PostWithUser, CommentWithUser } from "@shared/schema";
 import session from "express-session";
+import Database from "better-sqlite3";
 import path from "path";
 import { fileURLToPath } from 'url';
-import MemoryStore from 'memorystore';
+import SQLiteStore from "better-sqlite3-session-store";
 
 // Get proper __dirname equivalent in ESM
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Use memory store instead of SQLite
-const MemoryStoreSession = MemoryStore(session);
+// Initialize SQLite database
+const db = new Database(path.join(__dirname, "../data.db"));
 
-const sessionStore = new MemoryStoreSession({
-  checkPeriod: 86400000 // prune expired entries every 24h
-});
-
-export interface IStorage {
-  getUser(id: number): Promise<User | undefined>;
-  getUserByUsername(username: string): Promise<User | undefined>;
-  createUser(user: InsertUser): Promise<User>;
-  createPost(userId: number, content: string, imageUrl: string | null): Promise<Post>;
-  getPosts(): Promise<PostWithUser[]>;
-  getPost(id: number): Promise<PostWithUser | undefined>;
-  createComment(postId: number, userId: number, content: string): Promise<Comment>;
-  getCommentsByPost(postId: number): Promise<CommentWithUser[]>;
-  sessionStore: session.Store;
-}
+// Set up SQLite session store
+const SQLiteStoreSession = SQLiteStore(session);
 
 // Initialize database tables
 db.exec(`
@@ -53,6 +41,18 @@ db.exec(`
     FOREIGN KEY(userId) REFERENCES users(id)
   );
 `);
+
+export interface IStorage {
+  getUser(id: number): Promise<User | undefined>;
+  getUserByUsername(username: string): Promise<User | undefined>;
+  createUser(user: InsertUser): Promise<User>;
+  createPost(userId: number, content: string, imageUrl: string | null): Promise<Post>;
+  getPosts(): Promise<PostWithUser[]>;
+  getPost(id: number): Promise<PostWithUser | undefined>;
+  createComment(postId: number, userId: number, content: string): Promise<Comment>;
+  getCommentsByPost(postId: number): Promise<CommentWithUser[]>;
+  sessionStore: session.Store;
+}
 
 export class DiskStorage implements IStorage {
   sessionStore: session.Store;
