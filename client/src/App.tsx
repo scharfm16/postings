@@ -13,6 +13,12 @@ function Router() {
     <Switch>
       <ProtectedRoute path="/" component={HomePage} />
       <Route path="/auth" component={AuthPage} />
+      <Route path="/auth/google/callback">
+        {() => {
+          window.location.href = "/";
+          return null;
+        }}
+      </Route>
       <Route component={NotFound} />
     </Switch>
   );
