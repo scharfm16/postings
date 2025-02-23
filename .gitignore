@@ -42,6 +42,7 @@ uploads/*
 !uploads/.gitkeep
 vite.config.ts.*
 *.tar.gz
+data.db
 
 # Testing
 coverage
