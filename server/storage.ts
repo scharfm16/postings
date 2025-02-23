@@ -1,127 +1,164 @@
+
 import { User, InsertUser, Post, Comment, PostWithUser, CommentWithUser } from "@shared/schema";
 import session from "express-session";
-import createMemoryStore from "memorystore";
+import SQLiteStore from "better-sqlite3-session-store";
+import Database from "better-sqlite3";
+import path from "path";
 
-const MemoryStore = createMemoryStore(session);
+const db = new Database(path.join(process.cwd(), "data.db"));
+const SQLiteStoreSession = SQLiteStore(session);
 
 export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
-
   createPost(userId: number, content: string, imageUrl: string | null): Promise<Post>;
   getPosts(): Promise<PostWithUser[]>;
   getPost(id: number): Promise<PostWithUser | undefined>;
-
   createComment(postId: number, userId: number, content: string): Promise<Comment>;
   getCommentsByPost(postId: number): Promise<CommentWithUser[]>;
-
   sessionStore: session.Store;
 }
 
-export class MemStorage implements IStorage {
-  private users: Map<number, User>;
-  private posts: Map<number, Post>;
-  private comments: Map<number, Comment>;
+// Initialize database tables
+db.exec(`
+  CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE,
+    password TEXT,
+    avatarUrl TEXT
+  );
+  CREATE TABLE IF NOT EXISTS posts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    userId INTEGER,
+    content TEXT,
+    imageUrl TEXT,
+    createdAt TEXT,
+    FOREIGN KEY(userId) REFERENCES users(id)
+  );
+  CREATE TABLE IF NOT EXISTS comments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    postId INTEGER,
+    userId INTEGER,
+    content TEXT,
+    createdAt TEXT,
+    FOREIGN KEY(postId) REFERENCES posts(id),
+    FOREIGN KEY(userId) REFERENCES users(id)
+  );
+`);
+
+export class DiskStorage implements IStorage {
   sessionStore: session.Store;
-  private currentUserId: number;
-  private currentPostId: number;
-  private currentCommentId: number;
 
   constructor() {
-    this.users = new Map();
-    this.posts = new Map();
-    this.comments = new Map();
-    this.currentUserId = 1;
-    this.currentPostId = 1;
-    this.currentCommentId = 1;
-    this.sessionStore = new MemoryStore({
-      checkPeriod: 86400000,
+    this.sessionStore = new SQLiteStoreSession({
+      db: db,
+      table: 'sessions'
     });
   }
 
   async getUser(id: number): Promise<User | undefined> {
-    return this.users.get(id);
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+    return user || undefined;
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
-      (user) => user.username === username,
-    );
+    const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
+    return user || undefined;
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const id = this.currentUserId++;
-    const user: User = {
-      ...insertUser,
-      id,
-      avatarUrl: "https://images.unsplash.com/photo-1708860028064-3303a016e88f"
-    };
-    this.users.set(id, user);
-    return user;
+    const result = db.prepare(
+      'INSERT INTO users (username, password, avatarUrl) VALUES (?, ?, ?)'
+    ).run(
+      insertUser.username,
+      insertUser.password,
+      "https://images.unsplash.com/photo-1708860028064-3303a016e88f"
+    );
+    return this.getUser(result.lastInsertRowid as number) as Promise<User>;
   }
 
   async createPost(userId: number, content: string, imageUrl: string | null): Promise<Post> {
-    const id = this.currentPostId++;
-    const post: Post = {
-      id,
-      userId,
-      content,
-      imageUrl,
-      createdAt: new Date(),
-    };
-    this.posts.set(id, post);
-    return post;
+    const result = db.prepare(
+      'INSERT INTO posts (userId, content, imageUrl, createdAt) VALUES (?, ?, ?, ?)'
+    ).run(userId, content, imageUrl, new Date().toISOString());
+    return db.prepare('SELECT * FROM posts WHERE id = ?').get(result.lastInsertRowid);
   }
 
   async getPosts(): Promise<PostWithUser[]> {
-    return Array.from(this.posts.values())
-      .sort((a, b) => {
-        const timeA = a.createdAt?.getTime() ?? 0;
-        const timeB = b.createdAt?.getTime() ?? 0;
-        return timeB - timeA;
-      })
-      .map(post => ({
-        ...post,
-        user: this.users.get(post.userId)!
-      }));
+    const posts = db.prepare(`
+      SELECT posts.*, users.* 
+      FROM posts 
+      JOIN users ON posts.userId = users.id 
+      ORDER BY posts.createdAt DESC
+    `).all();
+    return posts.map(row => ({
+      id: row.id,
+      content: row.content,
+      imageUrl: row.imageUrl,
+      createdAt: new Date(row.createdAt),
+      userId: row.userId,
+      user: {
+        id: row.userId,
+        username: row.username,
+        password: row.password,
+        avatarUrl: row.avatarUrl
+      }
+    }));
   }
 
   async getPost(id: number): Promise<PostWithUser | undefined> {
-    const post = this.posts.get(id);
+    const post = db.prepare(`
+      SELECT posts.*, users.*
+      FROM posts
+      JOIN users ON posts.userId = users.id
+      WHERE posts.id = ?
+    `).get(id);
     if (!post) return undefined;
     return {
-      ...post,
-      user: this.users.get(post.userId)!
+      id: post.id,
+      content: post.content,
+      imageUrl: post.imageUrl,
+      createdAt: new Date(post.createdAt),
+      userId: post.userId,
+      user: {
+        id: post.userId,
+        username: post.username,
+        password: post.password,
+        avatarUrl: post.avatarUrl
+      }
     };
   }
 
   async createComment(postId: number, userId: number, content: string): Promise<Comment> {
-    const id = this.currentCommentId++;
-    const comment: Comment = {
-      id,
-      postId,
-      userId,
-      content,
-      createdAt: new Date(),
-    };
-    this.comments.set(id, comment);
-    return comment;
+    const result = db.prepare(
+      'INSERT INTO comments (postId, userId, content, createdAt) VALUES (?, ?, ?, ?)'
+    ).run(postId, userId, content, new Date().toISOString());
+    return db.prepare('SELECT * FROM comments WHERE id = ?').get(result.lastInsertRowid);
   }
 
   async getCommentsByPost(postId: number): Promise<CommentWithUser[]> {
-    return Array.from(this.comments.values())
-      .filter(comment => comment.postId === postId)
-      .sort((a, b) => {
-        const timeA = a.createdAt?.getTime() ?? 0;
-        const timeB = b.createdAt?.getTime() ?? 0;
-        return timeA - timeB;
-      })
-      .map(comment => ({
-        ...comment,
-        user: this.users.get(comment.userId)!
-      }));
+    const comments = db.prepare(`
+      SELECT comments.*, users.*
+      FROM comments
+      JOIN users ON comments.userId = users.id
+      WHERE comments.postId = ?
+      ORDER BY comments.createdAt ASC
+    `).all(postId);
+    return comments.map(row => ({
+      id: row.id,
+      postId: row.postId,
+      content: row.content,
+      createdAt: new Date(row.createdAt),
+      userId: row.userId,
+      user: {
+        id: row.userId,
+        username: row.username,
+        password: row.password,
+        avatarUrl: row.avatarUrl
+      }
+    }));
   }
 }
 
-export const storage = new MemStorage();
+export const storage = new DiskStorage();
