@@ -1,9 +1,10 @@
 
 import { User, InsertUser, Post, Comment, PostWithUser, CommentWithUser } from "@shared/schema";
 import session from "express-session";
-const SQLiteStore = require('better-sqlite3-session-store');
 import Database from "better-sqlite3";
 import path from "path";
+
+const SQLiteStore = require('better-sqlite3-session-store')(session);
 
 const db = new Database(path.join(process.cwd(), "data.db"));
 const SQLiteStoreSession = SQLiteStore(session);
