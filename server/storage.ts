@@ -13,7 +13,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const db = new Database(path.join(__dirname, "../data.db"));
 
 // Set up SQLite session store
-const SQLiteStoreSession = SQLiteStore(session);
+const Store = SQLiteStore(session);
+const sessionStore = new Store({
+  client: db // Pass the db client directly
+});
 
 // Initialize database tables
 db.exec(`
@@ -58,10 +61,7 @@ export class DiskStorage implements IStorage {
   sessionStore: session.Store;
 
   constructor() {
-    this.sessionStore = new SQLiteStoreSession({
-      db: db,
-      table: 'sessions'
-    });
+    this.sessionStore = sessionStore;
   }
 
   async getUser(id: number): Promise<User | undefined> {
