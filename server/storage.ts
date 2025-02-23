@@ -1,21 +1,18 @@
 
 import { User, InsertUser, Post, Comment, PostWithUser, CommentWithUser } from "@shared/schema";
 import session from "express-session";
-import Database from "better-sqlite3";
 import path from "path";
 import { fileURLToPath } from 'url';
+import MemoryStore from 'memorystore';
 
 // Get proper __dirname equivalent in ESM
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Import SQLite store
-const SQLiteStore = (await import('better-sqlite3-session-store')).default;
-const SessionStore = SQLiteStore(session);
+// Use memory store instead of SQLite
+const MemoryStoreSession = MemoryStore(session);
 
-const db = new Database(path.join(__dirname, "../data.db"));
-const SQLiteStoreSession = new SessionStore({
-  db: db,
-  table: 'sessions'
+const sessionStore = new MemoryStoreSession({
+  checkPeriod: 86400000 // prune expired entries every 24h
 });
 
 export interface IStorage {
