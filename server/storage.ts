@@ -3,11 +3,20 @@ import { User, InsertUser, Post, Comment, PostWithUser, CommentWithUser } from "
 import session from "express-session";
 import Database from "better-sqlite3";
 import path from "path";
+import { fileURLToPath } from 'url';
 
-const SQLiteStore = require('better-sqlite3-session-store')(session);
+// Get proper __dirname equivalent in ESM
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const db = new Database(path.join(process.cwd(), "data.db"));
-const SQLiteStoreSession = SQLiteStore(session);
+// Import SQLite store
+const SQLiteStore = (await import('better-sqlite3-session-store')).default;
+const SessionStore = SQLiteStore(session);
+
+const db = new Database(path.join(__dirname, "../data.db"));
+const SQLiteStoreSession = new SessionStore({
+  db: db,
+  table: 'sessions'
+});
 
 export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
